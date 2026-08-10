@@ -564,8 +564,16 @@ Today:
       }
     });
     if(res.status===409) return null; // not found yet
-    if(!res.ok) throw new Error("Dropbox download failed ("+res.status+")");
+    if(!res.ok) throw new Error("download " + await dbxErrorDetail(res));
     return await res.text();
+  }
+  async function dbxErrorDetail(res){
+    try{
+      const body = await res.text();
+      let parsed; try{ parsed = JSON.parse(body); }catch(e){}
+      const summary = parsed && (parsed.error_summary || parsed.error_description || parsed.error);
+      return res.status + (summary ? ": " + (typeof summary==="string" ? summary : JSON.stringify(summary)) : "");
+    } catch(e){ return String(res.status); }
   }
   async function dbxUpload(text){
     const token = await getAccessToken();
@@ -578,7 +586,7 @@ Today:
       },
       body: text
     });
-    if(!res.ok) throw new Error("Dropbox upload failed ("+res.status+")");
+    if(!res.ok) throw new Error("upload " + await dbxErrorDetail(res));
   }
   async function dbxAccountEmail(){
     const token = await getAccessToken();
@@ -596,7 +604,8 @@ Today:
   }
   function syncFailMessage(err){
     if(isLikelyFileOriginBlock(err)) return "Sync failed — opened as a local file, see Settings";
-    return "Sync failed — will retry";
+    const detail = err && err.message ? err.message : "unknown error";
+    return "Sync failed: " + detail;
   }
 
   async function pushToDropbox(){
