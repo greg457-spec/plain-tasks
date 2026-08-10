@@ -1,0 +1,715 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover">
+<title>Plain — a plain-text task outliner</title>
+<style>
+  :root{
+    --bg:#fbfaf7; --panel:#ffffff; --text:#2b2b28; --muted:#9a958a; --line:#e8e4da;
+    --accent:#3d6e5e; --tag:#8a5a3b; --tagbg:#f4ece2; --danger:#b1503f; --input-bg:#fffef9;
+  }
+  @media (prefers-color-scheme: dark){
+    :root{
+      --bg:#1c1b19; --panel:#232220; --text:#e9e6df; --muted:#7d786e; --line:#33312c;
+      --accent:#7fb8a2; --tag:#d8a878; --tagbg:#3a2f24; --danger:#e08a78; --input-bg:#2a2925;
+    }
+  }
+  *{box-sizing:border-box;}
+  html,body{height:100%;}
+  body{
+    margin:0; background:var(--bg); color:var(--text);
+    font-family:"SF Mono","Menlo","Consolas",ui-monospace,monospace;
+    font-size:15px; -webkit-text-size-adjust:100%;
+  }
+  #app{max-width:760px; margin:0 auto; padding:0 14px 60px; min-height:100%;}
+  header.toolbar{
+    position:sticky; top:0; z-index:5; background:var(--bg);
+    padding:14px 0 10px; border-bottom:1px solid var(--line);
+    display:flex; flex-wrap:wrap; gap:8px; align-items:center;
+  }
+  header.toolbar h1{
+    font-size:15px; margin:0 10px 0 0; font-weight:600; color:var(--accent);
+    letter-spacing:.02em; white-space:nowrap;
+  }
+  .btn{
+    border:1px solid var(--line); background:var(--panel); color:var(--text);
+    padding:7px 11px; border-radius:7px; font:inherit; font-size:13px; cursor:pointer;
+    white-space:nowrap;
+  }
+  .btn:active{ transform:translateY(1px); }
+  .btn.primary{ border-color:var(--accent); color:var(--accent); }
+  .btn.icon{ padding:7px 9px; font-size:15px; line-height:1; }
+  #search{
+    flex:1 1 140px; min-width:110px; border:1px solid var(--line); background:var(--input-bg);
+    color:var(--text); padding:7px 10px; border-radius:7px; font:inherit; font-size:13px;
+  }
+  #syncStatus{ font-size:11px; color:var(--muted); white-space:nowrap; margin-left:auto; }
+  #fileWarning{
+    display:none; background:var(--tagbg); color:var(--tag); border:1px solid var(--line);
+    border-radius:8px; padding:8px 10px; font-size:12px; line-height:1.6; margin-top:10px;
+  }
+  #fileWarning a{ color:var(--tag); font-weight:600; }
+  main#outline{ padding:14px 0 40px; min-height:200px; }
+  .row{
+    display:flex; align-items:flex-start; gap:6px; padding:3px 0; border-radius:5px;
+  }
+  .row:hover{ background:rgba(127,127,127,0.06); }
+  .icon{
+    flex:0 0 22px; width:22px; height:26px; display:flex; align-items:center; justify-content:center;
+    cursor:pointer; color:var(--muted); font-size:13px; user-select:none; border-radius:5px;
+  }
+  .icon:hover{ background:rgba(127,127,127,0.15); }
+  .content{ flex:1 1 auto; min-width:0; padding:3px 4px; line-height:1.5; word-break:break-word; cursor:text; }
+  .content input{
+    width:100%; border:none; outline:none; background:transparent; color:var(--text);
+    font:inherit; font-size:15px; padding:0; margin:0;
+  }
+  .row.project > .content{ font-weight:700; color:var(--accent); }
+  .row.note > .content{ font-style:italic; color:var(--muted); }
+  .row.task.done > .content{ color:var(--muted); text-decoration:line-through; text-decoration-color:var(--muted); }
+  .row.hiddenFilter{ display:none; }
+  .tag{ color:var(--tag); background:var(--tagbg); border-radius:4px; padding:0 4px; }
+  .row.project .icon{ font-size:10px; }
+  .row.task .icon{ font-size:15px; }
+  .row.note .icon{ font-size:8px; opacity:.6; }
+  footer.hint{
+    color:var(--muted); font-size:11px; padding-top:14px; border-top:1px solid var(--line);
+    line-height:1.7;
+  }
+  .modal{
+    position:fixed; inset:0; background:rgba(0,0,0,.4); display:flex; align-items:flex-start;
+    justify-content:center; padding:40px 16px; z-index:50; overflow:auto;
+  }
+  .modal.hidden{ display:none; }
+  .modal .box{
+    background:var(--panel); border:1px solid var(--line); border-radius:12px; padding:20px;
+    max-width:480px; width:100%;
+  }
+  .modal h2{ margin:0 0 12px; font-size:16px; color:var(--accent); }
+  .modal h3{ font-size:13px; margin:18px 0 6px; color:var(--text); }
+  .modal p{ font-size:12.5px; color:var(--muted); line-height:1.6; margin:6px 0; }
+  .modal input[type=text]{
+    width:100%; border:1px solid var(--line); background:var(--input-bg); color:var(--text);
+    padding:8px 10px; border-radius:7px; font:inherit; font-size:13px; margin:4px 0 10px;
+  }
+  .modal .row2{ display:flex; gap:8px; flex-wrap:wrap; margin:8px 0; }
+  .closeBtn{ float:right; }
+  #acctLine{ font-size:12px; color:var(--accent); margin-top:6px; }
+  a{ color:var(--accent); }
+</style>
+</head>
+<body>
+<div id="app">
+  <header class="toolbar">
+    <h1>plain</h1>
+    <button class="btn" id="addProjectBtn">+ Project</button>
+    <button class="btn" id="addTaskBtn">+ Task</button>
+    <input type="text" id="search" placeholder="filter… (try @done or @today)">
+    <button class="btn icon" id="settingsBtn" title="Settings">⚙</button>
+    <span id="syncStatus">—</span>
+  </header>
+  <main id="outline"></main>
+  <footer class="hint">
+    Enter: new task &nbsp;•&nbsp; Shift+Enter: new note &nbsp;•&nbsp; Tab / Shift+Tab: indent &nbsp;•&nbsp;
+    Ctrl/⌘+Enter: toggle done &nbsp;•&nbsp; end a line with <b>:</b> to make it a project
+  </footer>
+</div>
+
+<div class="modal hidden" id="settingsModal">
+  <div class="box">
+    <button class="btn icon closeBtn" id="closeSettings">✕</button>
+    <h2>Settings</h2>
+
+    <h3>Dropbox sync</h3>
+    <p id="dbxStatusText">Not connected. Your list is only saved on this device.</p>
+    <div id="fileWarning">
+      ⚠️ You opened this page as a local file (<code>file://</code>). Dropbox's servers block sync requests from local files — this isn't a bug, it's a browser security rule. Sync will keep failing until this page is served from a real <code>http://</code> or <code>https://</code> address (e.g. GitHub Pages). Editing and local saving still work fine either way.
+    </div>
+    <div id="dbxSetupStep1">
+      <p>1. Create a free Dropbox app at the <a href="https://www.dropbox.com/developers/apps" target="_blank">Dropbox App Console</a> (Scoped app → App folder access is fine → permissions: <code>files.content.write</code> + <code>files.content.read</code>). Copy its <b>App key</b> below.</p>
+      <input type="text" id="appKeyInput" placeholder="Dropbox App key">
+      <button class="btn primary" id="startAuthBtn">Connect to Dropbox</button>
+    </div>
+    <div id="dbxSetupStep2" style="display:none">
+      <p>2. A Dropbox tab opened for you to approve access. After approving, Dropbox shows a code on screen — paste it here:</p>
+      <input type="text" id="authCodeInput" placeholder="Paste authorization code">
+      <button class="btn primary" id="finishAuthBtn">Finish connecting</button>
+    </div>
+    <div id="dbxConnected" style="display:none">
+      <div id="acctLine"></div>
+      <div class="row2">
+        <button class="btn" id="syncNowBtn">Sync now</button>
+        <button class="btn" id="disconnectBtn">Disconnect</button>
+      </div>
+    </div>
+
+    <h3>Backup file</h3>
+    <div class="row2">
+      <button class="btn" id="exportBtn">Export .taskpaper</button>
+      <button class="btn" id="importBtn">Import .taskpaper</button>
+    </div>
+    <p>The whole list is always just plain text — export any time as a backup or to move it somewhere else.</p>
+  </div>
+</div>
+<input type="file" id="importFile" accept=".taskpaper,.txt" hidden>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ---------- storage keys ---------- */
+  const LS_TEXT = "plain_outline_text";
+  const LS_COLLAPSED = "plain_collapsed";
+  const LS_APPKEY = "dbx_app_key";
+  const LS_REFRESH = "dbx_refresh_token";
+  const LS_LASTSYNCED = "plain_last_synced_text";
+  const LS_VERIFIER = "dbx_pending_verifier";
+  const DBX_PATH = "/tasks.taskpaper";
+
+  const DEFAULT_TEXT =
+`Welcome:
+\t- Tap a bullet to check a task off, or tap the text to edit it @done
+\t- Type a line ending in : to make it a project, like this one
+\t- Use Tab and Shift+Tab to indent and outdent a line
+\t- Tag anything with @like_this or @priority(high)
+\t- Open Settings (top right) to connect Dropbox and sync across devices
+Today:
+\t- `;
+
+  /* ---------- state ---------- */
+  let lines = [];              // [{raw, indent}]
+  let editingIndex = null;     // index currently being edited
+  let caretAtStart = false;    // where to place caret after render
+  let collapsedSet = new Set(JSON.parse(localStorage.getItem(LS_COLLAPSED) || "[]"));
+  let filterQuery = "";
+  let saveTimer = null, syncTimer = null;
+  let accessToken = null, accessTokenExpires = 0;
+
+  /* ---------- parse / serialize ---------- */
+  function parseText(text){
+    return text.replace(/\r\n/g,"\n").split("\n").map(line=>{
+      let i=0; while(line[i]==="\t") i++;
+      // fallback: treat 4 leading spaces as one tab if no tabs used
+      if(i===0){
+        let spaces=0; while(line[spaces]===" ") spaces++;
+        if(spaces>=2) i = Math.floor(spaces/4) || 1, line = line.slice(spaces - (spaces%4));
+      }
+      return { indent:i, raw: line.slice(i) };
+    });
+  }
+  function serialize(){
+    return lines.map(l=>"\t".repeat(Math.max(0,l.indent)) + l.raw).join("\n");
+  }
+  function lineType(raw){
+    const t = raw.trim();
+    if(/^-(\s|$)/.test(t)) return "task";
+    if(t.length>0 && /:$/.test(t)) return "project";
+    if(t.length===0) return "blank";
+    return "note";
+  }
+  function taskLabel(raw){ return raw.replace(/^-\s?/,""); }
+  function extractTags(raw){
+    const tags = []; const re = /@([A-Za-z0-9_\-]+)(\(([^)]*)\))?/g; let m;
+    while((m = re.exec(raw))) tags.push({name:m[1], value:m[3]||null, full:m[0]});
+    return tags;
+  }
+  function isDone(raw){ return /@done(\(|$|\s)/.test(raw); }
+  function todayStr(){
+    const d = new Date();
+    return d.getFullYear()+"-"+String(d.getMonth()+1).padStart(2,"0")+"-"+String(d.getDate()).padStart(2,"0");
+  }
+
+  /* ---------- rendering ---------- */
+  const outlineEl = document.getElementById("outline");
+  const searchEl = document.getElementById("search");
+
+  function escapeHtml(s){
+    return s.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;");
+  }
+  function renderInlineHtml(raw, type){
+    let text = type==="task" ? taskLabel(raw) : raw;
+    let html = escapeHtml(text);
+    html = html.replace(/@([A-Za-z0-9_\-]+)(\(([^)]*)\))?/g, (whole)=>{
+      return '<span class="tag">'+whole+'</span>';
+    });
+    return html || "&nbsp;";
+  }
+
+  function computeVisibility(){
+    const hideStack = [];
+    lines.forEach(l=>{
+      while(hideStack.length && hideStack[hideStack.length-1] >= l.indent) hideStack.pop();
+      l._foldHidden = hideStack.length>0;
+      const t = lineType(l.raw);
+      l._type = t;
+      const key = l.raw.trim();
+      l._collapsed = (t==="project" && collapsedSet.has(key));
+      if(l._collapsed) hideStack.push(l.indent);
+    });
+  }
+
+  function computeFilter(){
+    const q = filterQuery.trim();
+    if(!q){ lines.forEach(l=>l._filterVisible = true); return; }
+    const byTag = q.startsWith("@");
+    const needle = (byTag ? q.slice(1) : q).toLowerCase();
+    const direct = lines.map(l=>{
+      if(byTag){
+        return extractTags(l.raw).some(t => t.name.toLowerCase().includes(needle) || (t.value||"").toLowerCase().includes(needle));
+      }
+      return l.raw.toLowerCase().includes(needle);
+    });
+    const n = lines.length;
+    const subtreeMatch = new Array(n).fill(false);
+    for(let i=n-1;i>=0;i--){
+      subtreeMatch[i] = direct[i];
+      if(!subtreeMatch[i]){
+        // check immediate following lines with greater indent (children) already computed
+        for(let j=i+1;j<n && lines[j].indent>lines[i].indent;j++){
+          if(subtreeMatch[j]){ subtreeMatch[i]=true; break; }
+        }
+      }
+    }
+    const ancestorMatch = new Array(n).fill(false);
+    const stack = [];
+    for(let i=0;i<n;i++){
+      while(stack.length && stack[stack.length-1].indent >= lines[i].indent) stack.pop();
+      ancestorMatch[i] = stack.some(s=>s.match);
+      stack.push({indent: lines[i].indent, match: direct[i]});
+    }
+    lines.forEach((l,i)=>{ l._filterVisible = direct[i] || subtreeMatch[i] || ancestorMatch[i]; });
+  }
+
+  function render(){
+    computeVisibility();
+    computeFilter();
+    outlineEl.innerHTML = "";
+    lines.forEach((l, idx)=>{
+      const visible = !l._foldHidden && l._filterVisible;
+      if(!visible) return;
+      const row = document.createElement("div");
+      row.className = "row " + l._type + (isDone(l.raw) && l._type==="task" ? " done":"");
+      row.style.marginLeft = (l.indent*20) + "px";
+
+      const icon = document.createElement("div");
+      icon.className = "icon";
+      if(l._type === "task"){
+        icon.textContent = isDone(l.raw) ? "☑" : "☐";
+        icon.title = "Toggle done";
+        icon.onclick = ()=> toggleDone(idx);
+      } else if(l._type === "project"){
+        icon.textContent = l._collapsed ? "▸" : "▾";
+        icon.title = "Fold/unfold";
+        icon.onclick = ()=> toggleCollapse(l);
+      } else {
+        icon.textContent = "·";
+      }
+      row.appendChild(icon);
+
+      const content = document.createElement("div");
+      content.className = "content";
+      if(idx === editingIndex){
+        const input = document.createElement("input");
+        input.type = "text";
+        input.value = l.raw;
+        input.autocapitalize = "off";
+        input.autocomplete = "off";
+        input.spellcheck = false;
+        input.addEventListener("keydown", (e)=>onEditKeydown(e, idx, input));
+        input.addEventListener("blur", ()=>{ commitLine(idx, input.value); if(editingIndex===idx) editingIndex=null; });
+        content.appendChild(input);
+        row.appendChild(content);
+        outlineEl.appendChild(row);
+        setTimeout(()=>{
+          input.focus();
+          const pos = caretAtStart ? 0 : input.value.length;
+          input.setSelectionRange(pos,pos);
+        },0);
+      } else {
+        content.innerHTML = renderInlineHtml(l.raw, l._type);
+        content.onclick = ()=>{ editingIndex = idx; caretAtStart=false; render(); };
+        row.appendChild(content);
+        outlineEl.appendChild(row);
+      }
+    });
+    if(lines.length===0){
+      const empty = document.createElement("div");
+      empty.style.color = "var(--muted)";
+      empty.style.padding = "20px 4px";
+      empty.textContent = "Nothing here yet — press + Task to add one.";
+      outlineEl.appendChild(empty);
+    }
+  }
+
+  /* ---------- mutations ---------- */
+  function commitLine(idx, value){
+    if(!lines[idx]) return;
+    if(lines[idx].raw === value) { scheduleSave(); return; }
+    lines[idx].raw = value;
+    scheduleSave();
+  }
+  function insertAfter(idx, raw, indent){
+    lines.splice(idx+1, 0, {indent, raw});
+    editingIndex = idx+1;
+    caretAtStart = false;
+    render();
+    scheduleSave();
+  }
+  function deleteLine(idx){
+    if(lines.length<=1) return;
+    lines.splice(idx,1);
+    editingIndex = Math.max(0, idx-1);
+    caretAtStart = false;
+    render();
+    scheduleSave();
+  }
+  function setIndent(idx, newIndent){
+    const prev = lines[idx-1];
+    const maxIndent = prev ? prev.indent+1 : 0;
+    lines[idx].indent = Math.max(0, Math.min(newIndent, maxIndent));
+    render();
+    scheduleSave();
+  }
+  function toggleDone(idx){
+    const l = lines[idx];
+    if(isDone(l.raw)){
+      l.raw = l.raw.replace(/\s?@done(\([^)]*\))?/,"");
+    } else {
+      l.raw = l.raw.replace(/\s*$/,"") + " @done(" + todayStr() + ")";
+    }
+    render();
+    scheduleSave();
+  }
+  function toggleCollapse(l){
+    const key = l.raw.trim();
+    if(collapsedSet.has(key)) collapsedSet.delete(key); else collapsedSet.add(key);
+    localStorage.setItem(LS_COLLAPSED, JSON.stringify([...collapsedSet]));
+    render();
+  }
+
+  function onEditKeydown(e, idx, input){
+    if(e.key === "Enter" && !e.shiftKey && !e.metaKey && !e.ctrlKey){
+      e.preventDefault();
+      commitLine(idx, input.value);
+      insertAfter(idx, "- ", lines[idx].indent);
+    } else if(e.key === "Enter" && e.shiftKey){
+      e.preventDefault();
+      commitLine(idx, input.value);
+      insertAfter(idx, "", lines[idx].indent);
+    } else if((e.key === "Enter") && (e.metaKey || e.ctrlKey)){
+      e.preventDefault();
+      commitLine(idx, input.value);
+      toggleDone(idx);
+      editingIndex = idx; render();
+    } else if(e.key === "Tab"){
+      e.preventDefault();
+      commitLine(idx, input.value);
+      setIndent(idx, lines[idx].indent + (e.shiftKey ? -1 : 1));
+      editingIndex = idx; caretAtStart=false; render();
+    } else if(e.key === "Backspace" && input.selectionStart===0 && input.selectionEnd===0){
+      if(input.value===""){
+        e.preventDefault();
+        deleteLine(idx);
+      } else if(idx>0){
+        e.preventDefault();
+        const prev = lines[idx-1];
+        const mergeAt = prev.raw.length;
+        commitLine(idx-1, prev.raw + input.value);
+        lines.splice(idx,1);
+        editingIndex = idx-1;
+        caretAtStart = false;
+        render();
+        setTimeout(()=>{
+          const el = outlineEl.querySelector(".content input");
+          if(el) el.setSelectionRange(mergeAt, mergeAt);
+        },0);
+        scheduleSave();
+      }
+    } else if(e.key === "ArrowUp"){
+      e.preventDefault();
+      commitLine(idx, input.value);
+      moveEdit(idx, -1);
+    } else if(e.key === "ArrowDown"){
+      e.preventDefault();
+      commitLine(idx, input.value);
+      moveEdit(idx, 1);
+    } else if(e.key === "Escape"){
+      commitLine(idx, input.value);
+      editingIndex = null;
+      render();
+    }
+  }
+  function moveEdit(idx, dir){
+    let ni = idx + dir;
+    while(ni>=0 && ni<lines.length){
+      computeVisibility(); computeFilter();
+      if(!lines[ni]._foldHidden && lines[ni]._filterVisible) break;
+      ni += dir;
+    }
+    if(ni>=0 && ni<lines.length){ editingIndex = ni; caretAtStart=false; render(); }
+    else { editingIndex = null; render(); }
+  }
+
+  /* ---------- toolbar actions ---------- */
+  document.getElementById("addProjectBtn").onclick = ()=>{
+    lines.push({indent:0, raw:"New Project:"});
+    editingIndex = lines.length-1; caretAtStart=false; render(); scheduleSave();
+  };
+  document.getElementById("addTaskBtn").onclick = ()=>{
+    lines.push({indent:0, raw:"- "});
+    editingIndex = lines.length-1; caretAtStart=false; render(); scheduleSave();
+  };
+  searchEl.addEventListener("input", ()=>{ filterQuery = searchEl.value; render(); });
+
+  /* ---------- persistence ---------- */
+  function scheduleSave(){
+    clearTimeout(saveTimer);
+    saveTimer = setTimeout(()=>{
+      localStorage.setItem(LS_TEXT, serialize());
+      setStatus(dbxConnected() ? "Saved locally · syncing…" : "Saved locally");
+      if(dbxConnected()){
+        clearTimeout(syncTimer);
+        syncTimer = setTimeout(pushToDropbox, 1800);
+      }
+    }, 500);
+  }
+  function loadLocal(){
+    const t = localStorage.getItem(LS_TEXT);
+    lines = parseText(t!==null ? t : DEFAULT_TEXT);
+    if(lines.length===0) lines=[{indent:0,raw:""}];
+    render();
+  }
+
+  /* ---------- dropbox: pkce + sync ---------- */
+  function dbxConnected(){ return !!localStorage.getItem(LS_REFRESH); }
+  function setStatus(msg){ document.getElementById("syncStatus").textContent = msg; }
+
+  function b64url(buf){
+    return btoa(String.fromCharCode(...new Uint8Array(buf))).replace(/\+/g,"-").replace(/\//g,"_").replace(/=+$/,"");
+  }
+  function randomVerifier(len){
+    const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-._~";
+    let out=""; const arr = new Uint8Array(len); crypto.getRandomValues(arr);
+    for(let i=0;i<len;i++) out += chars[arr[i]%chars.length];
+    return out;
+  }
+  async function sha256(str){
+    return await crypto.subtle.digest("SHA-256", new TextEncoder().encode(str));
+  }
+
+  async function startAuth(){
+    const appKey = document.getElementById("appKeyInput").value.trim();
+    if(!appKey){ alert("Enter your Dropbox App key first."); return; }
+    localStorage.setItem(LS_APPKEY, appKey);
+    const verifier = randomVerifier(64);
+    localStorage.setItem(LS_VERIFIER, verifier);
+    const challenge = b64url(await sha256(verifier));
+    const url = "https://www.dropbox.com/oauth2/authorize?client_id=" + encodeURIComponent(appKey) +
+      "&response_type=code&code_challenge=" + encodeURIComponent(challenge) +
+      "&code_challenge_method=S256&token_access_type=offline";
+    window.open(url, "_blank");
+    document.getElementById("dbxSetupStep2").style.display = "block";
+  }
+
+  async function finishAuth(){
+    const code = document.getElementById("authCodeInput").value.trim();
+    const appKey = localStorage.getItem(LS_APPKEY);
+    const verifier = localStorage.getItem(LS_VERIFIER);
+    if(!code || !appKey || !verifier){ alert("Missing code — try Connect again."); return; }
+    try{
+      const res = await fetch("https://api.dropboxapi.com/oauth2/token", {
+        method:"POST",
+        headers:{"Content-Type":"application/x-www-form-urlencoded"},
+        body: new URLSearchParams({
+          grant_type:"authorization_code", code, code_verifier: verifier, client_id: appKey
+        })
+      });
+      const data = await res.json();
+      if(!res.ok) throw new Error(data.error_description || data.error || "auth failed");
+      localStorage.setItem(LS_REFRESH, data.refresh_token);
+      accessToken = data.access_token;
+      accessTokenExpires = Date.now() + (data.expires_in*1000) - 60000;
+      localStorage.removeItem(LS_VERIFIER);
+      await afterConnected();
+      await syncOnConnect();
+    } catch(err){
+      alert("Couldn't connect: " + err.message);
+    }
+  }
+
+  async function getAccessToken(){
+    if(accessToken && Date.now() < accessTokenExpires) return accessToken;
+    const appKey = localStorage.getItem(LS_APPKEY);
+    const refresh = localStorage.getItem(LS_REFRESH);
+    const res = await fetch("https://api.dropboxapi.com/oauth2/token", {
+      method:"POST",
+      headers:{"Content-Type":"application/x-www-form-urlencoded"},
+      body: new URLSearchParams({ grant_type:"refresh_token", refresh_token: refresh, client_id: appKey })
+    });
+    const data = await res.json();
+    if(!res.ok) throw new Error(data.error_description || data.error || "refresh failed");
+    accessToken = data.access_token;
+    accessTokenExpires = Date.now() + (data.expires_in*1000) - 60000;
+    return accessToken;
+  }
+
+  async function dbxDownload(){
+    const token = await getAccessToken();
+    const res = await fetch("https://content.dropboxapi.com/2/files/download", {
+      method:"POST",
+      headers:{
+        "Authorization":"Bearer "+token,
+        "Dropbox-API-Arg": JSON.stringify({path: DBX_PATH})
+      }
+    });
+    if(res.status===409) return null; // not found yet
+    if(!res.ok) throw new Error("Dropbox download failed ("+res.status+")");
+    return await res.text();
+  }
+  async function dbxUpload(text){
+    const token = await getAccessToken();
+    const res = await fetch("https://content.dropboxapi.com/2/files/upload", {
+      method:"POST",
+      headers:{
+        "Authorization":"Bearer "+token,
+        "Dropbox-API-Arg": JSON.stringify({path: DBX_PATH, mode:"overwrite", mute:true}),
+        "Content-Type":"application/octet-stream"
+      },
+      body: text
+    });
+    if(!res.ok) throw new Error("Dropbox upload failed ("+res.status+")");
+  }
+  async function dbxAccountEmail(){
+    const token = await getAccessToken();
+    const res = await fetch("https://api.dropboxapi.com/2/users/get_current_account", {
+      method:"POST",
+      headers:{ "Authorization":"Bearer "+token, "Content-Type":"application/json" },
+      body: "null"
+    });
+    const data = await res.json();
+    return data.email;
+  }
+
+  function isLikelyFileOriginBlock(err){
+    return location.protocol === "file:" && err instanceof TypeError;
+  }
+  function syncFailMessage(err){
+    if(isLikelyFileOriginBlock(err)) return "Sync failed — opened as a local file, see Settings";
+    return "Sync failed — will retry";
+  }
+
+  async function pushToDropbox(){
+    if(!dbxConnected()) return;
+    try{
+      setStatus("Syncing…");
+      const text = serialize();
+      await dbxUpload(text);
+      localStorage.setItem(LS_LASTSYNCED, text);
+      setStatus("Synced · " + new Date().toLocaleTimeString());
+    } catch(err){
+      setStatus(syncFailMessage(err));
+      console.error(err);
+    }
+  }
+
+  async function syncOnConnect(){
+    try{
+      setStatus("Syncing…");
+      const remote = await dbxDownload();
+      const localText = serialize();
+      const lastSynced = localStorage.getItem(LS_LASTSYNCED);
+      if(remote===null){
+        await dbxUpload(localText);
+        localStorage.setItem(LS_LASTSYNCED, localText);
+        setStatus("Synced");
+        return;
+      }
+      const remoteChanged = remote !== lastSynced;
+      const localChanged = localText !== lastSynced;
+      if(remoteChanged && localChanged && remote !== localText){
+        if(confirm("Your Dropbox file and this device both have changes.\n\nPress OK to keep the Dropbox version (recommended if you edited on another device), or Cancel to keep what's on this device.")){
+          lines = parseText(remote); render();
+        }
+        await pushToDropbox();
+      } else if(remoteChanged && remote !== localText){
+        lines = parseText(remote); render();
+        localStorage.setItem(LS_TEXT, remote);
+        localStorage.setItem(LS_LASTSYNCED, remote);
+        setStatus("Synced from Dropbox");
+      } else {
+        await pushToDropbox();
+      }
+    } catch(err){
+      setStatus(syncFailMessage(err));
+      console.error(err);
+    }
+  }
+
+  async function afterConnected(){
+    document.getElementById("dbxSetupStep1").style.display = "none";
+    document.getElementById("dbxSetupStep2").style.display = "none";
+    document.getElementById("dbxConnected").style.display = "block";
+    document.getElementById("dbxStatusText").textContent = "Connected to Dropbox.";
+    try{
+      const email = await dbxAccountEmail();
+      document.getElementById("acctLine").textContent = "Signed in as " + email;
+    }catch(e){}
+  }
+
+  function disconnect(){
+    localStorage.removeItem(LS_REFRESH);
+    localStorage.removeItem(LS_LASTSYNCED);
+    accessToken = null;
+    document.getElementById("dbxConnected").style.display = "none";
+    document.getElementById("dbxSetupStep1").style.display = "block";
+    document.getElementById("dbxStatusText").textContent = "Not connected. Your list is only saved on this device.";
+    setStatus("Saved locally");
+  }
+
+  /* ---------- export / import ---------- */
+  document.getElementById("exportBtn").onclick = ()=>{
+    const blob = new Blob([serialize()], {type:"text/plain"});
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(blob);
+    a.download = "tasks.taskpaper";
+    a.click();
+  };
+  document.getElementById("importBtn").onclick = ()=> document.getElementById("importFile").click();
+  document.getElementById("importFile").addEventListener("change", (e)=>{
+    const file = e.target.files[0]; if(!file) return;
+    const reader = new FileReader();
+    reader.onload = ()=>{
+      if(confirm("Import will replace your current list (a Dropbox/local backup isn't touched until you sync). Continue?")){
+        lines = parseText(reader.result);
+        editingIndex = null; render(); scheduleSave();
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = "";
+  });
+
+  /* ---------- settings modal wiring ---------- */
+  const modal = document.getElementById("settingsModal");
+  document.getElementById("settingsBtn").onclick = ()=>{
+    modal.classList.remove("hidden");
+    document.getElementById("appKeyInput").value = localStorage.getItem(LS_APPKEY) || "";
+    document.getElementById("fileWarning").style.display = (location.protocol==="file:") ? "block" : "none";
+    if(dbxConnected()) afterConnected();
+  };
+  document.getElementById("closeSettings").onclick = ()=> modal.classList.add("hidden");
+  modal.addEventListener("click", (e)=>{ if(e.target===modal) modal.classList.add("hidden"); });
+  document.getElementById("startAuthBtn").onclick = startAuth;
+  document.getElementById("finishAuthBtn").onclick = finishAuth;
+  document.getElementById("syncNowBtn").onclick = pushToDropbox;
+  document.getElementById("disconnectBtn").onclick = disconnect;
+
+  /* ---------- init ---------- */
+  loadLocal();
+  if(dbxConnected()) syncOnConnect(); else setStatus("Saved locally");
+  setInterval(()=>{ if(dbxConnected() && editingIndex===null) syncOnConnect(); }, 90000);
+  window.addEventListener("beforeunload", ()=>{ localStorage.setItem(LS_TEXT, serialize()); });
+})();
+</script>
+</body>
+</html>
