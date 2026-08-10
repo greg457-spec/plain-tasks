@@ -572,7 +572,8 @@ Today:
       const body = await res.text();
       let parsed; try{ parsed = JSON.parse(body); }catch(e){}
       const summary = parsed && (parsed.error_summary || parsed.error_description || parsed.error);
-      return res.status + (summary ? ": " + (typeof summary==="string" ? summary : JSON.stringify(summary)) : "");
+      const readable = summary ? (typeof summary==="string" ? summary : JSON.stringify(summary)) : body;
+      return res.status + (readable ? ": " + String(readable).slice(0,200) : "");
     } catch(e){ return String(res.status); }
   }
   async function dbxUpload(text){
